@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventoAuditoria, Notificacion, MensajeMuerto } from './entidades';
+import { MensajeriaModule } from './mensajeria/mensajeria.module';
 
 @Module({
   imports: [
@@ -10,7 +11,8 @@ import { EventoAuditoria, Notificacion, MensajeMuerto } from './entidades';
       entities: [EventoAuditoria, Notificacion, MensajeMuerto],
       synchronize: true
     }),
-    TypeOrmModule.forFeature([EventoAuditoria, Notificacion, MensajeMuerto])
+    TypeOrmModule.forFeature([EventoAuditoria, Notificacion, MensajeMuerto]),
+    MensajeriaModule
   ],
   exports: [TypeOrmModule]
 })
