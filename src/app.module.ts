@@ -2,6 +2,9 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventoAuditoria, Notificacion, MensajeMuerto } from './entidades';
 import { MensajeriaModule } from './mensajeria/mensajeria.module';
+import { AuditoriaModule } from './consumidores/auditoria/auditoria.module';
+import { AvisosModule } from './consumidores/avisos/avisos.module';
+import { CorreosModule } from './consumidores/correos/correos.module';
 
 @Module({
   imports: [
@@ -12,7 +15,10 @@ import { MensajeriaModule } from './mensajeria/mensajeria.module';
       synchronize: true
     }),
     TypeOrmModule.forFeature([EventoAuditoria, Notificacion, MensajeMuerto]),
-    MensajeriaModule
+    MensajeriaModule,
+    AuditoriaModule,
+    AvisosModule,
+    CorreosModule
   ],
   exports: [TypeOrmModule]
 })
