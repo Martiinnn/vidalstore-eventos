@@ -6,6 +6,7 @@ import { AuditoriaModule } from './consumidores/auditoria/auditoria.module';
 import { AvisosModule } from './consumidores/avisos/avisos.module';
 import { CorreosModule } from './consumidores/correos/correos.module';
 import { MensajesMuertosModule } from './consumidores/mensajes-muertos/mensajes-muertos.module';
+import { PanelModule } from './consumidores/panel/panel.module';
 import { SaludModule } from './salud/salud.module';
 
 @Module({
@@ -22,6 +23,7 @@ import { SaludModule } from './salud/salud.module';
     AvisosModule,
     CorreosModule,
     MensajesMuertosModule,
+    PanelModule,
     SaludModule
   ],
   exports: [TypeOrmModule]

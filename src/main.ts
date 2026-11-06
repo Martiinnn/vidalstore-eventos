@@ -6,6 +6,7 @@ dotenv.config();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.enableShutdownHooks();
   const port = process.env.PORT || 3003;
   await app.listen(port);
   console.log(`[VidalStore Eventos] Escuchando en http://localhost:${port}`);
