@@ -92,11 +92,17 @@ export abstract class ConsumidorKafka<T extends object> implements OnModuleInit,
   }
 
   private async procesarHastaEscribir(evento: T, donde: string): Promise<Resultado | undefined> {
-    while (!this.cerrando) {
+    let reintentos = 0;
+    while (!this.cerrando && reintentos < 3) {
       try {
         return await this.negocio.procesar(evento);
       } catch (error) {
-        this.log.error(`${donde} no se pudo escribir, se reintenta en 2 s: ${(error as Error).message}`);
+        reintentos++;
+        this.log.error(`${donde} fallo al escribir (intento ${reintentos}/3), se reintenta en 2 s: ${(error as Error).message}`);
+        if (reintentos >= 3) {
+          this.log.error(`${donde} se descarta tras superar el limite de 3 reintentos en base de datos`);
+          return undefined;
+        }
         await esperar(ESPERA_REINTENTO_MS);
       }
     }
