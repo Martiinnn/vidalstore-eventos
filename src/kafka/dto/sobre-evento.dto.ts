@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsNumber, IsISO8601, IsObject, validateSync } from 'class-validator';
+import { IsString, IsNotEmpty, Equals, IsISO8601, IsObject, validateSync } from 'class-validator';
 
 export class SobreEventoDto {
   @IsString()
@@ -9,7 +9,7 @@ export class SobreEventoDto {
   @IsNotEmpty()
   tipo!: string;
 
-  @IsNumber()
+  @Equals(1)
   version!: number;
 
   @IsISO8601()
