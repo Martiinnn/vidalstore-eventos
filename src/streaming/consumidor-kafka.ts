@@ -7,7 +7,8 @@ import {
   MessagesStreamModes,
   stringDeserializers,
 } from '@platformatic/kafka';
-import { Contrato, EventoInvalido } from './contrato';
+import { Contrato, EventoInvalido, type Mensaje } from './contrato';
+import { PublicadorDlt, type MotivoDlt } from './dlt';
 
 export type Resultado = 'nuevo' | 'duplicado' | 'ignorado';
 
@@ -22,17 +23,18 @@ export type OpcionesGrupo<T extends object> = {
   desdeElPrincipio?: boolean;
 };
 
-const ESPERA_REINTENTO_MS = 2000;
+export const ESPERAS_REINTENTO_MS = [1000, 2000, 4000];
 const CADA_RESUMEN_MS = 10_000;
 
 export abstract class ConsumidorKafka<T extends object> implements OnModuleInit, OnModuleDestroy {
   protected readonly log: Logger;
   private readonly consumidor: Consumer<string, string, string, string>;
+  private readonly dlt: PublicadorDlt;
   private readonly contrato: Contrato<T>;
   private flujo?: MessagesStream<string, string, string, string>;
   private reloj?: NodeJS.Timeout;
   private cerrando = false;
-  private readonly cuenta = { nuevos: 0, duplicados: 0, ignorados: 0, invalidos: 0 };
+  private readonly cuenta = { nuevos: 0, duplicados: 0, ignorados: 0, invalidos: 0, sinPostgres: 0 };
   private ultimoResumen = '';
 
   protected constructor(
@@ -48,6 +50,7 @@ export abstract class ConsumidorKafka<T extends object> implements OnModuleInit,
       bootstrapBrokers: brokers,
       deserializers: stringDeserializers,
     });
+    this.dlt = new PublicadorDlt(brokers, `vidalstore-eventos-dlt-${opciones.grupo}`);
   }
 
   async onModuleInit(): Promise<void> {
@@ -72,12 +75,16 @@ export abstract class ConsumidorKafka<T extends object> implements OnModuleInit,
         } catch (error) {
           if (!(error instanceof EventoInvalido)) throw error;
           this.cuenta.invalidos++;
-          this.log.warn(`${donde} INVALIDO: ${error.message}`);
+          await this.desviar(m, donde, error.motivo, error.message);
           await m.commit();
           continue;
         }
-        const resultado = await this.procesarHastaEscribir(evento, donde);
+        const resultado = await this.procesarConReintentos(evento, donde);
         if (resultado === undefined) return;
+        if (resultado instanceof Error) {
+          this.cuenta.sinPostgres++;
+          await this.desviar(m, donde, 'postgres-no-responde', resultado.message);
+        }
         if (resultado === 'nuevo') this.cuenta.nuevos++;
         if (resultado === 'ignorado') this.cuenta.ignorados++;
         if (resultado === 'duplicado') {
@@ -91,28 +98,37 @@ export abstract class ConsumidorKafka<T extends object> implements OnModuleInit,
     }
   }
 
-  private async procesarHastaEscribir(evento: T, donde: string): Promise<Resultado | undefined> {
-    let reintentos = 0;
-    while (!this.cerrando && reintentos < 3) {
+  private async desviar(m: Mensaje, donde: string, motivo: MotivoDlt, detalle: string): Promise<void> {
+    const destino = await this.dlt.desviar(m, this.opciones.grupo, motivo, detalle);
+    this.log.warn(`${donde} AL .DLT (${motivo}) -> ${destino}: ${detalle}`);
+  }
+
+  private async procesarConReintentos(evento: T, donde: string): Promise<Resultado | Error | undefined> {
+    for (let intento = 0; !this.cerrando; intento++) {
       try {
         return await this.negocio.procesar(evento);
       } catch (error) {
-        reintentos++;
-        this.log.error(`${donde} fallo al escribir (intento ${reintentos}/3), se reintenta en 2 s: ${(error as Error).message}`);
-        if (reintentos >= 3) {
-          this.log.error(`${donde} se descarta tras superar el limite de 3 reintentos en base de datos`);
-          return undefined;
+        const causa = error instanceof Error ? error : new Error(String(error));
+        if (intento === ESPERAS_REINTENTO_MS.length) {
+          this.log.error(`${donde} sin Postgres tras ${intento} reintentos: ${causa.message}`);
+          return causa;
         }
-        await esperar(ESPERA_REINTENTO_MS);
+        const espera = ESPERAS_REINTENTO_MS[intento];
+        this.log.error(
+          `${donde} no se pudo escribir, reintento ${intento + 1} de ${ESPERAS_REINTENTO_MS.length} en ${espera / 1000} s: ${causa.message}`,
+        );
+        await esperar(espera);
       }
     }
     return undefined;
   }
 
   private resumir(): void {
-    const { nuevos, duplicados, ignorados, invalidos } = this.cuenta;
-    const texto = `desde el arranque: ${nuevos} nuevos, ${duplicados} duplicados, ${ignorados} ignorados, ${invalidos} invalidos`;
-    if (texto === this.ultimoResumen || nuevos + duplicados + ignorados + invalidos === 0) return;
+    const { nuevos, duplicados, ignorados, invalidos, sinPostgres } = this.cuenta;
+    const texto =
+      `desde el arranque: ${nuevos} nuevos, ${duplicados} duplicados, ${ignorados} ignorados, ` +
+      `${invalidos + sinPostgres} al .dlt (${invalidos} invalidos, ${sinPostgres} sin postgres)`;
+    if (texto === this.ultimoResumen || nuevos + duplicados + ignorados + invalidos + sinPostgres === 0) return;
     this.ultimoResumen = texto;
     this.log.log(texto);
   }
@@ -123,5 +139,6 @@ export abstract class ConsumidorKafka<T extends object> implements OnModuleInit,
     this.resumir();
     await this.flujo?.close();
     await this.consumidor.close();
+    await this.dlt.cerrar();
   }
 }
